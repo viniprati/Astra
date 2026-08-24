@@ -4,6 +4,8 @@
   "description": "Bot de parcerias, blacklist, contador e painel para Discord.",
   "main": "index.js",
   "type": "commonjs",
+  "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "start": "node index.js",
     "shard": "node src/shards.js",
