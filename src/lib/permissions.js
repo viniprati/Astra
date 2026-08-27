@@ -25,7 +25,7 @@ function canSendPartnership(member, config) {
     return true;
   }
 
-  return member.roles.cache.has(config.promoterRoleId);
+  return member.roles?.cache?.has(config.promoterRoleId) || false;
 }
 
 module.exports = {

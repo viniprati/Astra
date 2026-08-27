@@ -5,6 +5,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require("discord.js");
+const { getGuildConfig } = require("../services/guildConfigService");
+const { canSendPartnership } = require("../lib/permissions");
 
 function input(customId, label, style, required = true, placeholder = null) {
   const component = new TextInputBuilder()
@@ -26,6 +28,16 @@ module.exports = {
     .setDescription("Cria e envia uma parceria em embed."),
 
   async execute(interaction) {
+    const config = await getGuildConfig(interaction.client.db, interaction.guildId);
+
+    if (!canSendPartnership(interaction.member, config)) {
+      await interaction.reply({
+        content: "Você não tem o cargo necessário para enviar parcerias.",
+        ephemeral: true,
+      });
+      return;
+    }
+
     const modal = new ModalBuilder()
       .setCustomId("partnership:create")
       .setTitle("Nova Parceria")

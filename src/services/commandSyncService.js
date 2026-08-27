@@ -1,10 +1,7 @@
 const { REST, Routes } = require("discord.js");
 const { env } = require("../config/env");
 const { logger } = require("../lib/logger");
-
-function getCommandPayloads(client) {
-  return client.commands.map((command) => command.data.toJSON());
-}
+const { getCommandPayloads } = require("../loaders/commands");
 
 function getDefaultScope() {
   if (env.COMMAND_SCOPE === "global") {

@@ -15,23 +15,23 @@ const HELP_CATEGORIES = {
     fields: [
       {
         name: "🏆 Geral e Rankings",
-        value: "Perfil, ranking de promotoria, contador semanal, mensal e total.\n`6 comandos`",
+        value: "Ranking de promotoria e contador semanal, mensal e total.\n`2 comandos`",
       },
       {
         name: "📨 Parcerias",
-        value: "Criar embed, validar link, enviar parceria e registrar divulgação.\n`5 comandos`",
+        value: "Criar embed, validar link, enviar parceria e registrar divulgação.\n`1 comando + fluxo automático`",
       },
       {
         name: "⛔ Blacklist",
-        value: "Bloqueio por servidor, usuário, convite, link, domínio e motivo.\n`7 comandos`",
+        value: "Bloqueio por servidor, usuário, convite, link, domínio e motivo.\n`1 comando com 4 ações`",
       },
       {
         name: "⚙️ Configurações",
-        value: "Canais, cargos, logs, cor padrão, permissões e ping automático.\n`8 comandos`",
+        value: "Canais, cargos, logs, cor padrão, permissões e ping automático.\n`2 comandos`",
       },
       {
         name: "🛠️ Staff",
-        value: "Painel administrativo, resets, auditoria e manutenção do servidor.\n`6 comandos`",
+        value: "Painel administrativo, resets, status e sincronização.\n`4 comandos`",
       },
       {
         name: "🔒 Proteção Automática",
@@ -71,7 +71,7 @@ const HELP_CATEGORIES = {
       { name: "/blacklist add", value: "`Admin` Bloqueia servidor, usuário, convite, link ou domínio." },
       { name: "/blacklist remove", value: "`Admin` Remove um item bloqueado." },
       { name: "/blacklist list", value: "`Admin` Lista os últimos bloqueios." },
-      { name: "/blacklist check", value: "`Staff` Consulta se um item está bloqueado e mostra o motivo." },
+      { name: "/blacklist check", value: "`Admin` Consulta se um item está bloqueado e mostra o motivo." },
     ],
   },
   settings: {
@@ -88,7 +88,7 @@ const HELP_CATEGORIES = {
       { name: "/config ping_auto", value: "`Admin` Liga ou desliga ping automático." },
       { name: "/config cargo_ping", value: "`Admin` Define o cargo pingado nas parcerias." },
       { name: "/config cor_embed", value: "`Admin` Define a cor padrão dos embeds." },
-      { name: "/config ver", value: "`Staff` Mostra a configuração atual." },
+      { name: "/config ver", value: "`Público` Mostra a configuração atual." },
     ],
   },
   staff: {
@@ -99,7 +99,9 @@ const HELP_CATEGORIES = {
     fields: [
       { name: "/painel", value: "`Admin` Abre o painel para configurar o servidor sem decorar comandos." },
       { name: "/contador reset", value: "`Admin` Reseta contagens semanal, mensal ou total." },
-      { name: "/blacklist check", value: "`Staff` Ajuda a investigar links antes de liberar envio." },
+      { name: "/blacklist check", value: "`Admin` Ajuda a investigar links antes de liberar envio." },
+      { name: "/status", value: "`Público` Mostra a saúde operacional do bot." },
+      { name: "/sync", value: "`Dono` Sincroniza os comandos do bot." },
     ],
   },
 };

@@ -1,6 +1,6 @@
 const { Events } = require("discord.js");
 const { isBotOwner } = require("../lib/owner");
-const { getInteractiveDefaultScope, syncApplicationCommands } = require("../services/commandSyncService");
+const { formatSyncResults, getInteractiveDefaultScope, syncApplicationCommands } = require("../services/commandSyncService");
 const { messageLogger } = require("../lib/logger");
 
 const SCOPE_ALIASES = {
@@ -49,12 +49,12 @@ module.exports = {
     const status = await message.reply("Sincronizando...");
 
     try {
-      await syncApplicationCommands(client, {
+      const results = await syncApplicationCommands(client, {
         scope,
         guildId: message.guild.id,
       });
 
-      await status.edit("✅ Sync concluído.");
+      await status.edit(`✅ Sync concluído.\n${formatSyncResults(results)}`);
       setTimeout(() => {
         status.delete().catch(() => null);
         message.delete().catch(() => null);

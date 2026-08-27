@@ -1,7 +1,17 @@
 const { Events } = require("discord.js");
 const { env } = require("../config/env");
 const { logger } = require("../lib/logger");
+const { setRuntimeMetrics } = require("../observability/metrics");
 const { syncApplicationCommands } = require("../services/commandSyncService");
+
+function shouldAutoSyncCommands(client) {
+  if (!env.AUTO_DEPLOY_COMMANDS) {
+    return false;
+  }
+
+  const shardId = client.shard?.ids?.[0];
+  return shardId === undefined || shardId === 0;
+}
 
 module.exports = {
   name: Events.ClientReady,
@@ -14,9 +24,16 @@ module.exports = {
       tag: client.user.tag,
       guildCount: client.guilds.cache.size,
       commandScope: env.COMMAND_SCOPE,
+      shardIds: client.shard?.ids || null,
     }, "bot ready");
+    setRuntimeMetrics(client);
 
-    if (!env.AUTO_DEPLOY_COMMANDS) {
+    if (!shouldAutoSyncCommands(client)) {
+      logger.info({
+        event: "auto_sync_skipped",
+        reason: env.AUTO_DEPLOY_COMMANDS ? "non_primary_shard" : "disabled",
+        shardIds: client.shard?.ids || null,
+      }, "auto sync skipped");
       return;
     }
 

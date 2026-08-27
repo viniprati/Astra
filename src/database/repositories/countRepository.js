@@ -8,9 +8,9 @@ function countRepository(collection) {
       return collection.updateOne(filter, update, options);
     },
 
-    ranking(guildId, field, limit) {
+    ranking(guildId, field, limit, extraFilter = {}) {
       return collection
-        .find({ guildId, [field]: { $gt: 0 } })
+        .find({ guildId, ...extraFilter, [field]: { $gt: 0 } })
         .sort({ [field]: -1, updatedAt: -1 })
         .limit(limit)
         .toArray();
