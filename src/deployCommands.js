@@ -1,36 +1,22 @@
 const { REST, Routes } = require("discord.js");
-const { Client, Collection, GatewayIntentBits } = require("discord.js");
+const { Collection } = require("discord.js");
 const { env } = require("./config/env");
-const { loadCommands, getCommandPayloads } = require("./loaders/commands");
+const { loadCommands } = require("./loaders/commands");
 const { logger } = require("./lib/logger");
+const { formatSyncResults, getDefaultScope, syncApplicationCommands } = require("./services/commandSyncService");
 
 async function deploy(clientId) {
-  const scratchClient = new Client({ intents: [GatewayIntentBits.Guilds] });
-  scratchClient.commands = new Collection();
+  const scratchClient = {
+    commands: new Collection(),
+    user: { id: clientId },
+  };
   await loadCommands(scratchClient);
 
-  const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);
-  const body = getCommandPayloads(scratchClient);
-  const isGlobal = env.COMMAND_SCOPE === "global";
-  const guildId = env.DEV_GUILD_ID;
+  const results = await syncApplicationCommands(scratchClient, {
+    scope: getDefaultScope(),
+  });
 
-  if (!isGlobal && !guildId) {
-    throw new Error("DEV_GUILD_ID/GUILD_ID e obrigatorio quando COMMAND_SCOPE nao e global.");
-  }
-
-  const route = isGlobal
-    ? Routes.applicationCommands(clientId)
-    : Routes.applicationGuildCommands(clientId, guildId);
-
-  await rest.put(route, { body });
-  logger.info({
-    event: "commands_deployed",
-    scope: isGlobal ? "global" : "guild",
-    guildId: isGlobal ? null : guildId,
-    count: body.length,
-  }, "commands deployed");
-
-  console.log(`Registrados ${body.length} comandos ${isGlobal ? "globalmente" : `no servidor ${guildId}`}.`);
+  console.log(formatSyncResults(results));
 }
 
 async function clearGlobal(clientId) {

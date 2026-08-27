@@ -18,7 +18,7 @@ function normalizeTarget(targetType, rawValue) {
   }
 
   if (targetType === "link") {
-    return value.toLowerCase();
+    return value.replace(/[),.;]+$/g, "").toLowerCase();
   }
 
   return value.replace(/[<@!&>]/g, "");
@@ -53,6 +53,21 @@ function getCandidatesFromText(text) {
   return candidates;
 }
 
+function uniqueCandidates(candidates) {
+  const seen = new Set();
+
+  return candidates.filter((candidate) => {
+    const key = `${candidate.targetType}:${candidate.targetValue}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 async function addBlacklistItem(db, guildId, item) {
   const targetValue = normalizeTarget(item.targetType, item.targetValue);
   const document = {
@@ -81,8 +96,11 @@ async function listBlacklistItems(db, guildId, limit = 15) {
   return db.repositories.blacklists.list(guildId, limit);
 }
 
-async function findBlacklistMatch(db, guildId, text) {
-  const candidates = getCandidatesFromText(text);
+async function findBlacklistMatch(db, guildId, text, extraCandidates = []) {
+  const candidates = uniqueCandidates([
+    ...getCandidatesFromText(text),
+    ...extraCandidates,
+  ]);
 
   if (!candidates.length) {
     return null;
@@ -115,6 +133,7 @@ module.exports = {
   addBlacklistItem,
   checkBlacklistValue,
   findBlacklistMatch,
+  getCandidatesFromText,
   listBlacklistItems,
   normalizeTarget,
   removeBlacklistItem,

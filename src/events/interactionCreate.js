@@ -1,5 +1,5 @@
 const { Events } = require("discord.js");
-const { findBlacklistMatch } = require("../services/blacklistService");
+const { findBlacklistMatch, getCandidatesFromText } = require("../services/blacklistService");
 const { incrementPartnershipCount } = require("../services/countService");
 const { getGuildConfig, updateGuildConfig } = require("../services/guildConfigService");
 const { writeLog } = require("../services/logService");
@@ -8,7 +8,13 @@ const { buildHelpEmbed, buildHelpSelect } = require("../ui/help");
 const { buildPanelColorModal, buildPanelEmbed, buildPanelPickerRows, buildPanelRows } = require("../ui/panel");
 const { buildPartnershipEmbed, buildPartnershipPreviewRows } = require("../ui/partnership");
 const { interactionLogger } = require("../lib/logger");
-const { observeCommand, recordBlacklistCheck, recordPartnership } = require("../observability/metrics");
+const {
+  observeCommand,
+  observeInteraction,
+  recordBlacklistCheck,
+  recordPartnership,
+  setRuntimeMetrics,
+} = require("../observability/metrics");
 const { recordCommandUsage } = require("../services/commandUsageService");
 const { checkCommandCooldown } = require("../services/rateLimitService");
 
@@ -23,6 +29,69 @@ function isUrl(value) {
   } catch {
     return false;
   }
+}
+
+function normalizeRequiredUrl(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = /^(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\//i.test(raw)
+    ? `https://${raw}`
+    : raw;
+
+  return isUrl(normalized) ? normalized : null;
+}
+
+function isValidEmbedColor(value) {
+  return !value || /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function getPartnershipText(draft) {
+  return `${draft.title}\n${draft.description}\n${draft.link}\n${draft.image || ""}`;
+}
+
+function formatBlacklistBlockMessage(blacklistMatch) {
+  return (
+    "Essa parceria foi bloqueada pela blacklist.\n" +
+    `Item: \`${blacklistMatch.targetType}:${blacklistMatch.targetValue}\`\n` +
+    `Motivo: ${blacklistMatch.reason}`
+  );
+}
+
+async function getInviteGuildCandidates(client, text) {
+  const inviteCodes = [
+    ...new Set(
+      getCandidatesFromText(text)
+        .filter((candidate) => candidate.targetType === "invite_link")
+        .map((candidate) => candidate.targetValue),
+    ),
+  ].slice(0, 5);
+
+  const candidates = await Promise.all(
+    inviteCodes.map(async (code) => {
+      const invite = await client.fetchInvite(code).catch(() => null);
+      const guildId = invite?.guild?.id;
+
+      return guildId ? { targetType: "server_id", targetValue: guildId } : null;
+    }),
+  );
+
+  return candidates.filter(Boolean);
+}
+
+async function findPartnershipBlacklistMatch(interaction, draft) {
+  const text = getPartnershipText(draft);
+  const inviteGuildCandidates = await getInviteGuildCandidates(interaction.client, text);
+
+  return findBlacklistMatch(
+    interaction.client.db,
+    interaction.guildId,
+    text,
+    inviteGuildCandidates,
+  );
 }
 
 async function handleCommand(interaction) {
@@ -85,6 +154,13 @@ async function handleHelpSelect(interaction) {
 
 async function handlePanelInteraction(interaction) {
   const config = await getGuildConfig(interaction.client.db, interaction.guildId);
+  const panelKeys = new Set([
+    "partnerChannelId",
+    "logChannelId",
+    "adminRoleId",
+    "promoterRoleId",
+    "pingRoleId",
+  ]);
 
   if (!hasAdminPermission(interaction.member, config)) {
     await interaction.reply({ content: "Você não tem permissão para usar este painel.", ephemeral: true });
@@ -131,6 +207,12 @@ async function handlePanelInteraction(interaction) {
 
   if ((interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) && interaction.customId.startsWith("panel:set:")) {
     const key = interaction.customId.split(":")[2];
+
+    if (!panelKeys.has(key)) {
+      await interaction.reply({ content: "Configuração inválida.", ephemeral: true });
+      return;
+    }
+
     const value = interaction.values[0];
     const updated = await updateGuildConfig(interaction.client.db, interaction.guildId, {
       [key]: value,
@@ -171,6 +253,7 @@ async function handlePartnershipModal(interaction) {
   const config = await getGuildConfig(interaction.client.db, interaction.guildId);
 
   if (!canSendPartnership(interaction.member, config)) {
+    recordPartnership("forbidden");
     await interaction.reply({
       content: "Você não tem o cargo necessário para enviar parcerias.",
       ephemeral: true,
@@ -179,6 +262,7 @@ async function handlePartnershipModal(interaction) {
   }
 
   if (!config.partnerChannelId) {
+    recordPartnership("not_configured");
     await interaction.reply({
       content: "O canal de parcerias ainda não foi configurado. Use `/config canal_parcerias`.",
       ephemeral: true,
@@ -188,9 +272,28 @@ async function handlePartnershipModal(interaction) {
 
   const title = interaction.fields.getTextInputValue("title").trim();
   const description = interaction.fields.getTextInputValue("description").trim();
-  const link = interaction.fields.getTextInputValue("link").trim();
+  const link = normalizeRequiredUrl(interaction.fields.getTextInputValue("link"));
   const image = interaction.fields.getTextInputValue("image").trim();
   const color = interaction.fields.getTextInputValue("color").trim() || config.embedColor;
+
+  if (!link) {
+    recordPartnership("invalid_link");
+    await interaction.reply({
+      content: "Link inválido. Use uma URL `http(s)` ou um convite do Discord.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (!isValidEmbedColor(color)) {
+    recordPartnership("invalid_color");
+    await interaction.reply({
+      content: "Cor inválida. Use o formato `#facc15`.",
+      ephemeral: true,
+    });
+    return;
+  }
+
   const draft = {
     id: interaction.id,
     guildId: interaction.guildId,
@@ -203,20 +306,13 @@ async function handlePartnershipModal(interaction) {
     createdAt: Date.now(),
   };
 
-  const blacklistMatch = await findBlacklistMatch(
-    interaction.client.db,
-    interaction.guildId,
-    `${draft.title}\n${draft.description}\n${draft.link}\n${draft.image || ""}`,
-  );
+  const blacklistMatch = await findPartnershipBlacklistMatch(interaction, draft);
 
   if (blacklistMatch) {
     recordBlacklistCheck("blocked");
     recordPartnership("blocked");
     await interaction.reply({
-      content:
-        "Essa parceria foi bloqueada pela blacklist.\n" +
-        `Item: \`${blacklistMatch.targetType}:${blacklistMatch.targetValue}\`\n` +
-        `Motivo: ${blacklistMatch.reason}`,
+      content: formatBlacklistBlockMessage(blacklistMatch),
       ephemeral: true,
     });
     return;
@@ -224,6 +320,7 @@ async function handlePartnershipModal(interaction) {
 
   recordBlacklistCheck("clear");
   await interaction.client.cache.set(`partnership_draft:${draft.id}`, draft, 600);
+  recordPartnership("preview_created");
 
   await interaction.reply({
     content: "Confira a prévia da parceria antes de enviar.",
@@ -237,6 +334,7 @@ async function sendPartnershipDraft(interaction, draft) {
   const config = await getGuildConfig(interaction.client.db, interaction.guildId);
   const channel = await interaction.guild.channels.fetch(config.partnerChannelId).catch(() => null);
   if (!channel || !channel.isTextBased()) {
+    recordPartnership("channel_unavailable");
     await interaction.editReply({
       content: "Não consegui acessar o canal de parcerias configurado.",
       embeds: [],
@@ -280,6 +378,7 @@ async function handlePartnershipButton(interaction) {
   const draft = await interaction.client.cache.get(`partnership_draft:${draftId}`);
 
   if (!draft) {
+    recordPartnership("preview_expired");
     await interaction.reply({
       content: "Essa prévia expirou. Use `/embed` novamente.",
       ephemeral: true,
@@ -288,6 +387,7 @@ async function handlePartnershipButton(interaction) {
   }
 
   if (draft.userId !== interaction.user.id) {
+    recordPartnership("preview_forbidden");
     await interaction.reply({
       content: "Só quem criou essa prévia pode confirmar ou cancelar.",
       ephemeral: true,
@@ -296,6 +396,7 @@ async function handlePartnershipButton(interaction) {
   }
 
   if (action === "cancel") {
+    recordPartnership("canceled");
     await interaction.client.cache.delete(`partnership_draft:${draftId}`);
     await interaction.update({
       content: "Envio cancelado.",
@@ -307,20 +408,13 @@ async function handlePartnershipButton(interaction) {
 
   await interaction.deferUpdate();
 
-  const blacklistMatch = await findBlacklistMatch(
-    interaction.client.db,
-    interaction.guildId,
-    `${draft.title}\n${draft.description}\n${draft.link}\n${draft.image || ""}`,
-  );
+  const blacklistMatch = await findPartnershipBlacklistMatch(interaction, draft);
 
   if (blacklistMatch) {
     recordBlacklistCheck("blocked");
     recordPartnership("blocked");
     await interaction.editReply({
-      content:
-        "Essa parceria foi bloqueada pela blacklist.\n" +
-        `Item: \`${blacklistMatch.targetType}:${blacklistMatch.targetValue}\`\n` +
-        `Motivo: ${blacklistMatch.reason}`,
+      content: formatBlacklistBlockMessage(blacklistMatch),
       embeds: [],
       components: [],
     });
@@ -337,39 +431,48 @@ module.exports = {
 
   async execute(interaction) {
     const log = interactionLogger(interaction);
+    const startedAt = Date.now();
+    let status = "ignored";
 
     try {
       if (!interaction.inGuild()) {
         if (interaction.isRepliable()) {
           await interaction.reply({ content: "Use meus comandos dentro de um servidor.", ephemeral: true });
         }
+        status = "dm_rejected";
         return;
       }
 
       if (interaction.isChatInputCommand()) {
         await handleCommand(interaction);
+        status = "success";
         return;
       }
 
       if (interaction.isStringSelectMenu() && interaction.customId === "help:category") {
         await handleHelpSelect(interaction);
+        status = "success";
         return;
       }
 
       if (interaction.customId?.startsWith("panel:")) {
         await handlePanelInteraction(interaction);
+        status = "success";
         return;
       }
 
       if (interaction.isModalSubmit() && interaction.customId === "partnership:create") {
         await handlePartnershipModal(interaction);
+        status = "success";
         return;
       }
 
       if (interaction.isButton() && interaction.customId?.startsWith("partnership:")) {
         await handlePartnershipButton(interaction);
+        status = "success";
       }
     } catch (error) {
+      status = "error";
       log.error({ event: "interaction_failed", error: error.message, stack: error.stack }, "interaction failed");
 
       const payload = {
@@ -382,6 +485,9 @@ module.exports = {
       } else if (interaction.isRepliable()) {
         await interaction.reply(payload).catch(() => null);
       }
+    } finally {
+      observeInteraction(interaction, status, startedAt);
+      setRuntimeMetrics(interaction.client);
     }
   },
 };

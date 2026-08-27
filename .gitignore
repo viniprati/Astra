@@ -1,7 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
-package.json
 
 # Environment and secrets
 .env
@@ -33,6 +31,9 @@ build/
 .parcel-cache/
 .turbo/
 .eslintcache
+
+# Local deploy config
+discloud.config
 
 # Package manager caches
 .npm/

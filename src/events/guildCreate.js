@@ -1,5 +1,6 @@
 const { Events } = require("discord.js");
 const { logger } = require("../lib/logger");
+const { setRuntimeMetrics } = require("../observability/metrics");
 
 module.exports = {
   name: Events.GuildCreate,
@@ -11,5 +12,6 @@ module.exports = {
       guildName: guild.name,
       memberCount: guild.memberCount,
     }, "guild joined");
+    setRuntimeMetrics(guild.client);
   },
 };

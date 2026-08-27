@@ -15,60 +15,73 @@ async function incrementPartnershipCount(db, guildId, userId) {
   const now = new Date();
   const weekKey = getWeekKey(now);
   const monthKey = getMonthKey(now);
-  const current = await db.repositories.counts.findByUser(guildId, userId);
-
-  const resetPatch = {};
-
-  if (!current || current.weekKey !== weekKey) {
-    resetPatch.weeklyCount = 0;
-    resetPatch.weekKey = weekKey;
-  }
-
-  if (!current || current.monthKey !== monthKey) {
-    resetPatch.monthlyCount = 0;
-    resetPatch.monthKey = monthKey;
-  }
 
   await db.repositories.counts.updateOne(
     { guildId, userId },
-    {
-      $set: {
-        ...resetPatch,
-        lastPartnerAt: now,
-        updatedAt: now,
+    [
+      {
+        $set: {
+          guildId,
+          userId,
+          createdAt: { $ifNull: ["$createdAt", now] },
+          weeklyCount: {
+            $add: [
+              {
+                $cond: [
+                  { $eq: ["$weekKey", weekKey] },
+                  { $ifNull: ["$weeklyCount", 0] },
+                  0,
+                ],
+              },
+              1,
+            ],
+          },
+          monthlyCount: {
+            $add: [
+              {
+                $cond: [
+                  { $eq: ["$monthKey", monthKey] },
+                  { $ifNull: ["$monthlyCount", 0] },
+                  0,
+                ],
+              },
+              1,
+            ],
+          },
+          totalCount: { $add: [{ $ifNull: ["$totalCount", 0] }, 1] },
+          weekKey,
+          monthKey,
+          lastPartnerAt: now,
+          updatedAt: now,
+        },
       },
-      $setOnInsert: {
-        guildId,
-        userId,
-        totalCount: 0,
-        createdAt: now,
-      },
-    },
+    ],
     { upsert: true },
-  );
-
-  await db.repositories.counts.updateOne(
-    { guildId, userId },
-    {
-      $inc: {
-        weeklyCount: 1,
-        monthlyCount: 1,
-        totalCount: 1,
-      },
-      $set: {
-        weekKey,
-        monthKey,
-        lastPartnerAt: now,
-        updatedAt: now,
-      },
-    },
   );
 
   return db.repositories.counts.findByUser(guildId, userId);
 }
 
+function normalizeCountPeriods(count, date = new Date()) {
+  if (!count) {
+    return null;
+  }
+
+  const weekKey = getWeekKey(date);
+  const monthKey = getMonthKey(date);
+
+  return {
+    ...count,
+    weeklyCount: count.weekKey === weekKey ? count.weeklyCount || 0 : 0,
+    monthlyCount: count.monthKey === monthKey ? count.monthlyCount || 0 : 0,
+    weekKey,
+    monthKey,
+  };
+}
+
 async function getUserCount(db, guildId, userId) {
-  return db.repositories.counts.findByUser(guildId, userId);
+  const count = await db.repositories.counts.findByUser(guildId, userId);
+  return normalizeCountPeriods(count);
 }
 
 async function getRanking(db, guildId, type, limit = 10) {
@@ -77,9 +90,15 @@ async function getRanking(db, guildId, type, limit = 10) {
     mensal: "monthlyCount",
     total: "totalCount",
   };
+  const periodFilterByType = {
+    semanal: { weekKey: getWeekKey() },
+    mensal: { monthKey: getMonthKey() },
+    total: {},
+  };
   const field = fieldByType[type] || "weeklyCount";
+  const periodFilter = periodFilterByType[type] || periodFilterByType.semanal;
 
-  return db.repositories.counts.ranking(guildId, field, limit);
+  return db.repositories.counts.ranking(guildId, field, limit, periodFilter);
 }
 
 async function resetCounts(db, guildId, type) {
@@ -88,6 +107,10 @@ async function resetCounts(db, guildId, type) {
     mensal: { monthlyCount: 0, monthKey: getMonthKey() },
     total: { weeklyCount: 0, monthlyCount: 0, totalCount: 0, weekKey: getWeekKey(), monthKey: getMonthKey() },
   };
+
+  if (!patchByType[type]) {
+    throw new Error("Tipo de contador inválido.");
+  }
 
   const result = await db.repositories.counts.reset(guildId, patchByType[type]);
 
@@ -100,5 +123,6 @@ module.exports = {
   getUserCount,
   getWeekKey,
   incrementPartnershipCount,
+  normalizeCountPeriods,
   resetCounts,
 };

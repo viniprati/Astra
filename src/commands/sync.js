@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require("discord.js");
 const { isBotOwner } = require("../lib/owner");
-const { getInteractiveDefaultScope, syncApplicationCommands } = require("../services/commandSyncService");
+const { formatSyncResults, getInteractiveDefaultScope, syncApplicationCommands } = require("../services/commandSyncService");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,11 +15,11 @@ module.exports = {
 
     await interaction.deferReply({ ephemeral: true });
 
-    await syncApplicationCommands(interaction.client, {
+    const results = await syncApplicationCommands(interaction.client, {
       scope: getInteractiveDefaultScope(),
       guildId: interaction.guildId,
     });
 
-    await interaction.editReply("✅ Sync concluído.");
+    await interaction.editReply(`✅ Sync concluído.\n${formatSyncResults(results)}`);
   },
 };

@@ -6,6 +6,7 @@ const { recordCache } = require("../observability/metrics");
 class MemoryCache {
   constructor() {
     this.store = new Map();
+    this.provider = "memory";
   }
 
   async get(key) {
@@ -38,11 +39,16 @@ class MemoryCache {
     this.store.delete(key);
     recordCache("delete", "memory");
   }
+
+  async close() {
+    this.store.clear();
+  }
 }
 
 class RedisCache {
   constructor(redis) {
     this.redis = redis;
+    this.provider = "redis";
   }
 
   async get(key) {
@@ -53,8 +59,15 @@ class RedisCache {
       return null;
     }
 
-    recordCache("get", "hit");
-    return JSON.parse(raw);
+    try {
+      recordCache("get", "hit");
+      return JSON.parse(raw);
+    } catch (error) {
+      await this.delete(key);
+      recordCache("get", "invalid_json");
+      logger.warn({ event: "redis_cache_parse_failed", key, error: error.message }, "redis cache parse failed");
+      return null;
+    }
   }
 
   async set(key, value, ttlSeconds = 300) {
@@ -73,21 +86,44 @@ class RedisCache {
     await this.redis.del(key);
     recordCache("delete", "redis");
   }
+
+  async close() {
+    await this.redis.quit();
+  }
 }
 
 function createCache() {
   if (!env.REDIS_URL) {
-    logger.info({ event: "cache_started", provider: "memory" }, "cache started");
+    const level = env.NODE_ENV === "production" ? "warn" : "info";
+    logger[level]({
+      event: "cache_started",
+      provider: "memory",
+      scalable: false,
+    }, "cache started");
     return new MemoryCache();
   }
 
   const redis = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: 2,
     enableReadyCheck: true,
+    connectTimeout: env.REDIS_CONNECT_TIMEOUT_MS,
+    commandTimeout: env.REDIS_COMMAND_TIMEOUT_MS,
+  });
+
+  redis.on("connect", () => {
+    logger.info({ event: "redis_connect" }, "redis connect");
+  });
+
+  redis.on("ready", () => {
+    logger.info({ event: "redis_ready" }, "redis ready");
   });
 
   redis.on("error", (error) => {
     logger.warn({ event: "redis_error", error: error.message }, "redis error");
+  });
+
+  redis.on("close", () => {
+    logger.warn({ event: "redis_closed" }, "redis closed");
   });
 
   logger.info({ event: "cache_started", provider: "redis" }, "cache started");
