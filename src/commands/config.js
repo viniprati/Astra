@@ -5,6 +5,7 @@ const {
 } = require("discord.js");
 const { getGuildConfig, updateGuildConfig } = require("../services/guildConfigService");
 const { hasAdminPermission } = require("../lib/permissions");
+const { trackInteraction } = require("../analytics/posthog");
 
 function configSummary(config) {
   return new EmbedBuilder()
@@ -115,6 +116,9 @@ module.exports = {
 
     try {
       const updated = await updateGuildConfig(interaction.client.db, interaction.guildId, patchBySubcommand[subcommand]());
+      trackInteraction(interaction, "config_updated", {
+        config_key: subcommand,
+      });
       await interaction.reply({
         content: "Configuração atualizada.",
         embeds: [configSummary(updated)],

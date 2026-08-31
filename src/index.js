@@ -7,6 +7,7 @@ const { env } = require("./config/env");
 const { logger } = require("./lib/logger");
 const { startHealthServer } = require("./observability/healthServer");
 const { startScheduler } = require("./jobs/scheduler");
+const { trackEvent } = require("./analytics/posthog");
 
 const resources = {
   client: null,
@@ -119,9 +120,19 @@ process.on("unhandledRejection", (error) => {
     error: error?.message || String(error),
     stack: error?.stack,
   }, "unhandled rejection");
+  trackEvent("bot_error", "astra-runtime", {
+    error_type: "unhandled_rejection",
+    environment: env.NODE_ENV,
+    $process_person_profile: false,
+  });
 });
 
-main().catch((error) => {
+main().catch(async (error) => {
   logger.error({ event: "fatal_error", error: error.message, stack: error.stack }, "fatal error");
+  await trackEvent("bot_error", "astra-runtime", {
+    error_type: "fatal_error",
+    environment: env.NODE_ENV,
+    $process_person_profile: false,
+  });
   shutdown("fatal_error", 1).catch(() => process.exit(1));
 });

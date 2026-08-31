@@ -17,6 +17,7 @@ const {
 } = require("../observability/metrics");
 const { recordCommandUsage } = require("../services/commandUsageService");
 const { checkCommandCooldown } = require("../services/rateLimitService");
+const { trackInteraction } = require("../analytics/posthog");
 
 function isUrl(value) {
   if (!value) {
@@ -114,6 +115,10 @@ async function handleCommand(interaction) {
 
     if (cooldown.limited) {
       observeCommand(interaction.commandName, "rate_limited", startedAt);
+      trackInteraction(interaction, "command_rate_limited", {
+        command: interaction.commandName,
+        retry_after_seconds: cooldown.retryAfterSeconds,
+      });
       await interaction.reply({
         content: `Calma um pouco. Tente novamente em ${cooldown.retryAfterSeconds}s.`,
         ephemeral: true,
@@ -123,6 +128,11 @@ async function handleCommand(interaction) {
 
     await command.execute(interaction);
     observeCommand(interaction.commandName, "success", startedAt);
+    trackInteraction(interaction, "command_executed", {
+      command: interaction.commandName,
+      status: "success",
+      duration_ms: Date.now() - startedAt,
+    });
     await recordCommandUsage(interaction.client.db, {
       guildId: interaction.guildId,
       userId: interaction.user.id,
@@ -132,6 +142,11 @@ async function handleCommand(interaction) {
     }).catch(() => null);
   } catch (error) {
     observeCommand(interaction.commandName, "error", startedAt);
+    trackInteraction(interaction, "command_executed", {
+      command: interaction.commandName,
+      status: "error",
+      duration_ms: Date.now() - startedAt,
+    });
     await recordCommandUsage(interaction.client.db, {
       guildId: interaction.guildId,
       userId: interaction.user.id,
@@ -184,6 +199,9 @@ async function handlePanelInteraction(interaction) {
       const updated = await updateGuildConfig(interaction.client.db, interaction.guildId, {
         autoPing: !config.autoPing,
       });
+      trackInteraction(interaction, "config_updated", {
+        config_key: "autoPing",
+      });
 
       await interaction.update({
         embeds: [buildPanelEmbed(updated)],
@@ -217,6 +235,9 @@ async function handlePanelInteraction(interaction) {
     const updated = await updateGuildConfig(interaction.client.db, interaction.guildId, {
       [key]: value,
     });
+    trackInteraction(interaction, "config_updated", {
+      config_key: key,
+    });
 
     await interaction.update({
       content: "✅ Configuração atualizada.",
@@ -239,6 +260,9 @@ async function handlePanelInteraction(interaction) {
 
     const updated = await updateGuildConfig(interaction.client.db, interaction.guildId, {
       embedColor: color.toLowerCase(),
+    });
+    trackInteraction(interaction, "config_updated", {
+      config_key: "embedColor",
     });
 
     await interaction.reply({
@@ -278,6 +302,7 @@ async function handlePartnershipModal(interaction) {
 
   if (!link) {
     recordPartnership("invalid_link");
+    trackInteraction(interaction, "partnership_invalid_link");
     await interaction.reply({
       content: "Link inválido. Use uma URL `http(s)` ou um convite do Discord.",
       ephemeral: true,
@@ -287,6 +312,7 @@ async function handlePartnershipModal(interaction) {
 
   if (!isValidEmbedColor(color)) {
     recordPartnership("invalid_color");
+    trackInteraction(interaction, "partnership_invalid_color");
     await interaction.reply({
       content: "Cor inválida. Use o formato `#facc15`.",
       ephemeral: true,
@@ -311,6 +337,10 @@ async function handlePartnershipModal(interaction) {
   if (blacklistMatch) {
     recordBlacklistCheck("blocked");
     recordPartnership("blocked");
+    trackInteraction(interaction, "partnership_blocked", {
+      blocked_type: blacklistMatch.targetType,
+      reason_category: blacklistMatch.targetType,
+    });
     await interaction.reply({
       content: formatBlacklistBlockMessage(blacklistMatch),
       ephemeral: true,
@@ -321,6 +351,10 @@ async function handlePartnershipModal(interaction) {
   recordBlacklistCheck("clear");
   await interaction.client.cache.set(`partnership_draft:${draft.id}`, draft, 600);
   recordPartnership("preview_created");
+  trackInteraction(interaction, "partnership_preview_created", {
+    has_image: Boolean(draft.image),
+    auto_ping_enabled: Boolean(config.autoPing && config.pingRoleId),
+  });
 
   await interaction.reply({
     content: "Confira a prévia da parceria antes de enviar.",
@@ -354,6 +388,10 @@ async function sendPartnershipDraft(interaction, draft) {
 
   const count = await incrementPartnershipCount(interaction.client.db, interaction.guildId, interaction.user.id);
   recordPartnership("sent");
+  trackInteraction(interaction, "partnership_sent", {
+    has_image: Boolean(draft.image),
+    auto_ping_enabled: Boolean(config.autoPing && config.pingRoleId),
+  });
 
   await writeLog(interaction.client.db, interaction.guild, {
     title: "Parceria enviada",
@@ -397,6 +435,7 @@ async function handlePartnershipButton(interaction) {
 
   if (action === "cancel") {
     recordPartnership("canceled");
+    trackInteraction(interaction, "partnership_canceled");
     await interaction.client.cache.delete(`partnership_draft:${draftId}`);
     await interaction.update({
       content: "Envio cancelado.",
@@ -413,6 +452,10 @@ async function handlePartnershipButton(interaction) {
   if (blacklistMatch) {
     recordBlacklistCheck("blocked");
     recordPartnership("blocked");
+    trackInteraction(interaction, "partnership_blocked", {
+      blocked_type: blacklistMatch.targetType,
+      reason_category: blacklistMatch.targetType,
+    });
     await interaction.editReply({
       content: formatBlacklistBlockMessage(blacklistMatch),
       embeds: [],
@@ -473,6 +516,11 @@ module.exports = {
       }
     } catch (error) {
       status = "error";
+      if (interaction.isRepliable()) {
+        trackInteraction(interaction, "bot_error", {
+          interaction_kind: interaction.isChatInputCommand() ? "command" : "component",
+        });
+      }
       log.error({ event: "interaction_failed", error: error.message, stack: error.stack }, "interaction failed");
 
       const payload = {

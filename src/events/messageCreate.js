@@ -2,6 +2,7 @@ const { Events } = require("discord.js");
 const { isBotOwner } = require("../lib/owner");
 const { formatSyncResults, getInteractiveDefaultScope, syncApplicationCommands } = require("../services/commandSyncService");
 const { messageLogger } = require("../lib/logger");
+const { hashId, trackEvent } = require("../analytics/posthog");
 
 const SCOPE_ALIASES = {
   servidor: "guild",
@@ -52,6 +53,14 @@ module.exports = {
       const results = await syncApplicationCommands(client, {
         scope,
         guildId: message.guild.id,
+      });
+      trackEvent("sync_completed", hashId(message.author.id), {
+        guild_hash: hashId(message.guild.id),
+        user_hash: hashId(message.author.id),
+        scope,
+        result_count: results.length,
+        source: "prefix",
+        $process_person_profile: false,
       });
 
       await status.edit(`✅ Sync concluído.\n${formatSyncResults(results)}`);

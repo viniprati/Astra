@@ -70,6 +70,11 @@ const env = {
   REDIS_COMMAND_TIMEOUT_MS: number("REDIS_COMMAND_TIMEOUT_MS", 5000, { min: 500 }),
   SHARD_TOTAL: process.env.SHARD_TOTAL || "auto",
   SHARD_RESPAWN: boolean("SHARD_RESPAWN", true),
+  POSTHOG_ENABLED: boolean("POSTHOG_ENABLED", false),
+  POSTHOG_KEY: process.env.POSTHOG_KEY || "",
+  POSTHOG_HOST: (process.env.POSTHOG_HOST || "https://us.i.posthog.com").replace(/\/+$/, ""),
+  POSTHOG_SALT: process.env.POSTHOG_SALT || "",
+  POSTHOG_TIMEOUT_MS: number("POSTHOG_TIMEOUT_MS", 3000, { min: 500 }),
   LOG_LEVEL: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
 };
 

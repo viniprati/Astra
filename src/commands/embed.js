@@ -7,6 +7,7 @@ const {
 } = require("discord.js");
 const { getGuildConfig } = require("../services/guildConfigService");
 const { canSendPartnership } = require("../lib/permissions");
+const { trackInteraction } = require("../analytics/posthog");
 
 function input(customId, label, style, required = true, placeholder = null) {
   const component = new TextInputBuilder()
@@ -37,6 +38,10 @@ module.exports = {
       });
       return;
     }
+
+    trackInteraction(interaction, "partnership_modal_opened", {
+      auto_ping_enabled: Boolean(config.autoPing && config.pingRoleId),
+    });
 
     const modal = new ModalBuilder()
       .setCustomId("partnership:create")

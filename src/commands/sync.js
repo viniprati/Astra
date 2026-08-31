@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require("discord.js");
 const { isBotOwner } = require("../lib/owner");
 const { formatSyncResults, getInteractiveDefaultScope, syncApplicationCommands } = require("../services/commandSyncService");
+const { trackInteraction } = require("../analytics/posthog");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -18,6 +19,10 @@ module.exports = {
     const results = await syncApplicationCommands(interaction.client, {
       scope: getInteractiveDefaultScope(),
       guildId: interaction.guildId,
+    });
+    trackInteraction(interaction, "sync_completed", {
+      result_count: results.length,
+      scope: getInteractiveDefaultScope(),
     });
 
     await interaction.editReply(`✅ Sync concluído.\n${formatSyncResults(results)}`);

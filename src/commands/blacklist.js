@@ -7,6 +7,7 @@ const {
 } = require("../services/blacklistService");
 const { getGuildConfig } = require("../services/guildConfigService");
 const { hasAdminPermission } = require("../lib/permissions");
+const { trackInteraction } = require("../analytics/posthog");
 
 const targetChoices = [
   ["Servidor ID", "server_id"],
@@ -63,11 +64,16 @@ module.exports = {
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "add") {
+      const targetType = interaction.options.getString("tipo");
       const item = await addBlacklistItem(interaction.client.db, interaction.guildId, {
-        targetType: interaction.options.getString("tipo"),
+        targetType,
         targetValue: interaction.options.getString("valor"),
         reason: interaction.options.getString("motivo"),
         addedBy: interaction.user.id,
+      });
+      trackInteraction(interaction, "blacklist_item_added", {
+        target_type: targetType,
+        reason_category: targetType,
       });
 
       await interaction.reply({
@@ -78,12 +84,17 @@ module.exports = {
     }
 
     if (subcommand === "remove") {
+      const targetType = interaction.options.getString("tipo");
       const removed = await removeBlacklistItem(
         interaction.client.db,
         interaction.guildId,
-        interaction.options.getString("tipo"),
+        targetType,
         interaction.options.getString("valor"),
       );
+      trackInteraction(interaction, "blacklist_item_removed", {
+        target_type: targetType,
+        removed,
+      });
 
       await interaction.reply({
         content: removed ? "Item removido da blacklist." : "Esse item não estava na blacklist.",
@@ -93,12 +104,17 @@ module.exports = {
     }
 
     if (subcommand === "check") {
+      const targetType = interaction.options.getString("tipo");
       const item = await checkBlacklistValue(
         interaction.client.db,
         interaction.guildId,
-        interaction.options.getString("tipo"),
+        targetType,
         interaction.options.getString("valor"),
       );
+      trackInteraction(interaction, "blacklist_checked", {
+        target_type: targetType,
+        blocked: Boolean(item),
+      });
 
       await interaction.reply({
         content: item

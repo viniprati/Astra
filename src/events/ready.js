@@ -3,6 +3,7 @@ const { env } = require("../config/env");
 const { logger } = require("../lib/logger");
 const { setRuntimeMetrics } = require("../observability/metrics");
 const { syncApplicationCommands } = require("../services/commandSyncService");
+const { trackEvent, hashId, isEnabled: isPostHogEnabled } = require("../analytics/posthog");
 
 function shouldAutoSyncCommands(client) {
   if (!env.AUTO_DEPLOY_COMMANDS) {
@@ -26,6 +27,15 @@ module.exports = {
       commandScope: env.COMMAND_SCOPE,
       shardIds: client.shard?.ids || null,
     }, "bot ready");
+    trackEvent("bot_started", hashId(client.user.id), {
+      bot_hash: hashId(client.user.id),
+      guild_count: client.guilds.cache.size,
+      command_count: client.commands?.size || 0,
+      posthog_enabled: isPostHogEnabled(),
+      environment: env.NODE_ENV,
+      shard_id: client.shard?.ids?.join(",") || process.env.SHARD_ID || "single",
+      $process_person_profile: false,
+    });
     setRuntimeMetrics(client);
 
     if (!shouldAutoSyncCommands(client)) {
